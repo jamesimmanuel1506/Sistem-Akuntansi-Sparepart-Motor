@@ -1,0 +1,161 @@
+@media (min-width: 761px) {
+  .nav-label,
+  .section-kicker,
+  .eyebrow {
+    font-size: 11px;
+  }
+
+  .nav-item {
+    font-size: 14px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .topbar {
+    height: 98px;
+  }
+
+  .topbar h1 {
+    font-size: 22px;
+  }
+
+  .button {
+    min-height: 46px;
+    font-size: 14px;
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .welcome-row h2 {
+    font-size: 42px;
+  }
+
+  .view-intro h2 {
+    font-size: 38px;
+  }
+
+  .welcome-stamp {
+    font-size: 10px;
+  }
+
+  .metric {
+    min-height: 152px;
+    padding: 20px;
+  }
+
+  .metric-top {
+    font-size: 13px;
+  }
+
+  .metric strong {
+    font-size: 29px;
+  }
+
+  .metric small {
+    font-size: 12px;
+  }
+
+  .panel-heading {
+    padding: 21px 22px 16px;
+  }
+
+  .panel-heading h3,
+  .table-title h3 {
+    font-size: 17px;
+  }
+
+  th {
+    font-size: 11px;
+    padding: 12px 15px;
+  }
+
+  td {
+    font-size: 13px;
+    padding: 14px 15px;
+  }
+
+  .part-code {
+    font-size: 11px;
+  }
+
+  .stock-badge {
+    font-size: 11px;
+    padding: 5px 8px;
+  }
+
+  .text-button {
+    font-size: 12px;
+  }
+
+  .recent-item {
+    padding: 14px 0;
+  }
+
+  .recent-copy strong,
+  .recent-amount {
+    font-size: 12px;
+  }
+
+  .recent-copy small {
+    font-size: 10px;
+  }
+
+  .recent-amount small {
+    font-size: 10px;
+  }
+
+  .field-label {
+    font-size: 11px;
+    margin-bottom: 17px;
+  }
+
+  .field-label input,
+  .field-label select {
+    height: 44px;
+    font-size: 14px;
+  }
+
+  .price-preview span,
+  .total-box span {
+    font-size: 11px;
+  }
+
+  .price-preview strong {
+    font-size: 14px;
+  }
+
+  .total-box strong {
+    font-size: 22px;
+  }
+
+  .search-box input {
+    font-size: 13px;
+  }
+
+  .dialog-heading h2 {
+    font-size: 24px;
+  }
+}
+
+@media (max-width: 760px) {
+  .field-label {
+    font-size: 10px;
+  }
+
+  .field-label input,
+  .field-label select {
+    font-size: 14px;
+  }
+
+  th {
+    font-size: 10px;
+  }
+
+  td {
+    font-size: 12px;
+  }
+
+  .metric small {
+    font-size: 10px;
+  }
+}
