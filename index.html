@@ -1,72 +1,79 @@
 <!doctype html>
 <html lang="id">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f4f5f0">
-  <title>Rantai — Sistem Akuntansi Sparepart</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./styles.css">
-    <link rel="stylesheet" href="./ui-scale.css">
-  <link rel="stylesheet" href="./transaction-cart.css">
-    <link rel="stylesheet" href="./history-controls.css">
-  <link rel="stylesheet" href="./catalog-actions.css">
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#f4f5f0">
+	<title>Rantai — Sistem Akuntansi Sparepart</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <a class="brand" href="#overview" aria-label="Rantai, beranda">
-        <span class="brand-mark">R</span>
-        <span class="brand-name">rantai<span>.</span><small>SPAREPART LEDGER</small></span>
-      </a>
-      <div class="nav-label">RUANG KERJA</div>
-      <nav class="main-nav" aria-label="Navigasi utama">
-        <button class="nav-item active" data-view="overview"><span class="nav-icon">▦</span>Ringkasan</button>
-        <button class="nav-item" data-view="inventory"><span class="nav-icon">▤</span>Inventaris</button>
-        <button class="nav-item" data-view="transactions"><span class="nav-icon">⇄</span>Transaksi</button>
-      </nav>
-      <div class="sidebar-bottom"><span class="status-dot"></span><span>Terhubung ke database</span></div>
-    </aside>
+	<div class="app-shell">
+		<aside class="sidebar">
+			<a class="brand" href="#overview"><span class="brand-mark">R</span><span class="brand-name">rantai<span>.</span><small>SPAREPART LEDGER</small></span></a>
+			<div class="nav-label">RUANG KERJA</div>
+			<nav class="main-nav" aria-label="Navigasi utama">
+				<button class="nav-item active" data-view="overview"><span class="nav-icon">▦</span>Ringkasan</button>
+				<button class="nav-item" data-view="inventory"><span class="nav-icon">▤</span>Inventaris</button>
+				<button class="nav-item" data-view="transactions"><span class="nav-icon">⇄</span>Transaksi</button>
+			</nav>
+			<div class="sidebar-bottom"><span class="status-dot"></span><span>Terhubung ke database</span></div>
+		</aside>
 
-    <main class="main-content">
-      <header class="topbar">
-        <div><div class="eyebrow" id="page-eyebrow">DASHBOARD / TOKO</div><h1 id="page-title">Ringkasan</h1></div>
-        <div class="topbar-right"><span class="today-label" id="today-label"></span><button class="button button-dark" id="quick-transaction"><span>＋</span> Transaksi baru</button></div>
-      </header>
+		<main class="main-content">
+			<header class="topbar">
+				<div><div class="eyebrow" id="page-eyebrow">DASHBOARD / TOKO</div><h1 id="page-title">Ringkasan</h1></div>
+				<div class="topbar-right"><span class="today-label" id="today-label"></span><button class="button button-dark" id="quick-transaction"><span>＋</span> Transaksi baru</button></div>
+			</header>
 
-      <section class="view active" id="view-overview">
-        <div class="welcome-row"><div><p class="section-kicker">BUKU BESAR HARI INI</p><h2>Angka yang menjaga<br>toko tetap <em>berjalan.</em></h2></div><div class="welcome-stamp"><span class="stamp-icon">↗</span><span>TERCATAT<br>RAPI, SETIAP HARI</span></div></div>
-        <div class="metrics-grid">
-          <article class="metric metric-green"><div class="metric-top"><span>Nilai persediaan</span><span class="metric-symbol">◉</span></div><strong id="metric-stock-value">—</strong><small>berdasarkan harga beli</small></article>
-          <article class="metric"><div class="metric-top"><span>Unit tersedia</span><span class="metric-symbol">▤</span></div><strong id="metric-stock-units">—</strong><small><span id="metric-part-count">—</span> jenis sparepart</small></article>
-          <article class="metric"><div class="metric-top"><span>Penjualan tercatat</span><span class="metric-symbol">↗</span></div><strong id="metric-sales">—</strong><small>1000 transaksi terakhir</small></article>
-          <article class="metric metric-orange"><div class="metric-top"><span>Transaksi hari ini</span><span class="metric-symbol">◷</span></div><strong id="metric-today">—</strong><small>pembelian dan penjualan</small></article>
-        </div>
-        <div class="dashboard-grid">
-          <section class="panel inventory-panel"><div class="panel-heading"><div><p class="section-kicker">KATALOG</p><h3>Stok yang tersedia</h3></div><button class="text-button" data-open-view="inventory">Lihat inventaris <span>→</span></button></div><div class="table-wrap"><table><thead><tr><th>SPAREPART</th><th>KATEGORI</th><th>STOK</th><th>HARGA JUAL</th></tr></thead><tbody id="overview-parts"></tbody></table></div><div class="empty-state hidden" id="overview-empty">Belum ada sparepart. Tambahkan item pertama di inventaris.</div></section>
-          <section class="panel recent-panel"><div class="panel-heading"><div><p class="section-kicker">AKTIVITAS</p><h3>Transaksi terbaru</h3></div><button class="icon-button" data-open-view="transactions" aria-label="Lihat semua transaksi">↗</button></div><div class="recent-list" id="recent-transactions"></div><div class="empty-state hidden" id="transactions-empty">Belum ada transaksi yang tercatat.</div></section>
-        </div>
-      </section>
+			<section class="view active" id="view-overview">
+				<div class="welcome-row"><div><p class="section-kicker">BUKU BESAR HARI INI</p><h2>Angka yang menjaga<br>toko tetap <em>berjalan.</em></h2></div><div class="welcome-stamp"><span class="stamp-icon">↗</span><span>TERCATAT<br>RAPI, SETIAP HARI</span></div></div>
+				<div class="metrics-grid">
+					<article class="metric metric-green"><div class="metric-top"><span>Nilai persediaan</span><span>◉</span></div><strong id="metric-stock-value">—</strong><small>berdasarkan harga beli</small></article>
+					<article class="metric"><div class="metric-top"><span>Unit tersedia</span><span>▤</span></div><strong id="metric-stock-units">—</strong><small><span id="metric-part-count">—</span> jenis sparepart</small></article>
+					<article class="metric"><div class="metric-top"><span>Penjualan tercatat</span><span>↗</span></div><strong id="metric-sales">—</strong><small>1000 transaksi terakhir</small></article>
+					<article class="metric metric-orange"><div class="metric-top"><span>Transaksi hari ini</span><span>◷</span></div><strong id="metric-today">—</strong><small>pembelian dan penjualan</small></article>
+				</div>
+				<div class="dashboard-grid">
+					<section class="panel"><div class="panel-heading"><div><p class="section-kicker">KATALOG</p><h3>Stok yang tersedia</h3></div><button class="text-button" data-open-view="inventory">Lihat inventaris →</button></div><div class="table-wrap"><table><thead><tr><th>SPAREPART</th><th>KATEGORI</th><th>STOK</th><th>HARGA JUAL</th></tr></thead><tbody id="overview-parts"></tbody></table></div><div class="empty-state hidden" id="overview-empty">Belum ada sparepart. Tambahkan item pertama di inventaris.</div></section>
+					<section class="panel"><div class="panel-heading"><div><p class="section-kicker">AKTIVITAS</p><h3>Transaksi terbaru</h3></div><button class="icon-button" data-open-view="transactions" aria-label="Lihat transaksi">↗</button></div><div class="recent-list" id="recent-transactions"></div><div class="empty-state hidden" id="transactions-empty">Belum ada transaksi yang tercatat.</div></section>
+				</div>
+			</section>
 
-      <section class="view" id="view-inventory">
-        <div class="view-intro"><div><p class="section-kicker">KATALOG SPAREPART</p><h2>Semua barang,<br><em>satu tempat.</em></h2></div><button class="button button-dark" id="open-part-dialog"><span>＋</span> Tambah sparepart</button></div>
-        <section class="panel full-panel"><div class="table-toolbar"><div class="table-title"><h3>Daftar inventaris</h3><span class="count-pill" id="inventory-count">0 item</span></div><label class="search-box"><span>⌕</span><input type="search" id="part-search" placeholder="Cari nama atau kode..." aria-label="Cari sparepart"></label></div><div class="table-wrap"><table><thead><tr><th>KODE</th><th>NAMA SPAREPART</th><th>KATEGORI</th><th>STOK</th><th>HARGA BELI</th><th>HARGA JUAL</th><th></th></tr></thead><tbody id="inventory-parts"></tbody></table></div><div class="empty-state hidden" id="inventory-empty">Tidak ada sparepart yang cocok dengan pencarian.</div></section>
-      </section>
+			<section class="view" id="view-inventory">
+				<div class="view-intro"><div><p class="section-kicker">KATALOG SPAREPART</p><h2>Semua barang,<br><em>satu tempat.</em></h2></div><button class="button button-dark" id="open-part-dialog"><span>＋</span> Tambah sparepart</button></div>
+				<section class="panel"><div class="table-toolbar"><div class="table-title"><h3>Daftar inventaris</h3><span class="count-pill" id="inventory-count">0 item</span></div><label class="search-box"><span>⌕</span><input id="part-search" type="search" placeholder="Cari nama atau kode..." aria-label="Cari sparepart"></label></div><div class="table-wrap"><table><thead><tr><th>KODE</th><th>NAMA SPAREPART</th><th>KATEGORI</th><th>STOK</th><th>HARGA BELI</th><th>HARGA JUAL</th><th></th></tr></thead><tbody id="inventory-parts"></tbody></table></div><div class="empty-state hidden" id="inventory-empty">Tidak ada sparepart yang cocok.</div></section>
+			</section>
 
-      <section class="view" id="view-transactions">
-        <div class="view-intro"><div><p class="section-kicker">BUKU TRANSAKSI</p><h2>Setiap barang<br>punya <em>jejak.</em></h2></div></div>
-        <div class="transaction-layout">
-          <section class="panel transaction-form-panel"><div class="panel-heading"><div><p class="section-kicker">INPUT BARU</p><h3>Catat transaksi</h3></div></div><form id="transaction-form"><label class="field-label">JENIS TRANSAKSI<select id="transaction-type"><option value="sale">Penjualan</option><option value="purchase">Pembelian stok</option></select></label><label class="field-label">PILIH SPAREPART<select id="transaction-part"><option value="">Pilih sparepart...</option></select></label><div class="quantity-line"><label class="field-label">JUMLAH<input id="transaction-quantity" type="number" min="1" step="1" value="1" required></label><div class="price-preview"><span>HARGA SATUAN</span><strong id="unit-price">Rp0</strong></div></div><button class="button add-cart-button" id="add-cart-item" type="button">＋ Tambahkan item</button><div class="cart-section"><div class="cart-heading"><span>ITEM TRANSAKSI</span><span id="cart-count">0 item</span></div><div id="transaction-cart" class="transaction-cart"><p class="cart-empty">Pilih sparepart lalu tambahkan ke transaksi.</p></div></div><label class="field-label">CATATAN <span class="optional">OPSIONAL</span><input id="transaction-note" type="text" maxlength="300" placeholder="Contoh: Pembelian dari supplier"></label><div class="total-box"><span>TOTAL TRANSAKSI</span><strong id="transaction-total">Rp0</strong></div><button class="button button-dark submit-button" type="submit">Simpan transaksi <span>→</span></button><p class="form-message" id="transaction-message" role="status"></p></form></section>
-          <section class="panel full-panel history-panel"><div class="panel-heading"><div><p class="section-kicker">RIWAYAT</p><h3>Riwayat transaksi</h3></div><button class="button export-button" id="export-transactions" type="button">↓ Ekspor CSV</button></div><div class="history-filters"><label class="history-search"><span>⌕</span><input id="history-search" type="search" placeholder="Cari item atau catatan..." aria-label="Cari riwayat transaksi"></label><label class="filter-field"><span>JENIS</span><select id="history-type"><option value="all">Semua transaksi</option><option value="sale">Penjualan</option><option value="purchase">Pembelian</option></select></label><label class="filter-field"><span>BULAN</span><input id="history-month" type="month" aria-label="Filter bulan"></label><span class="history-result-count" id="history-result-count"></span></div><div id="transaction-history" class="history-list"></div><div class="empty-state hidden" id="history-empty">Tidak ada transaksi yang cocok dengan filter.</div></section>
-        </div>
-      </section>
-    </main>
-  </div>
+			<section class="view" id="view-transactions">
+				<div class="view-intro"><div><p class="section-kicker">BUKU TRANSAKSI</p><h2>Setiap barang<br>punya <em>jejak.</em></h2></div></div>
+				<div class="transaction-layout">
+					<section class="panel transaction-form-panel"><div class="panel-heading"><div><p class="section-kicker">INPUT BARU</p><h3>Catat transaksi</h3></div></div>
+						<form id="transaction-form">
+							<label class="field-label">JENIS TRANSAKSI<select id="transaction-type"><option value="sale">Penjualan</option><option value="purchase">Pembelian stok</option></select></label>
+							<label class="field-label">PILIH SPAREPART<select id="transaction-part"><option value="">Pilih sparepart...</option></select></label>
+							<div class="quantity-line"><label class="field-label">JUMLAH<input id="transaction-quantity" type="number" min="1" step="1" value="1" required></label><div class="price-preview"><span>HARGA SATUAN</span><strong id="unit-price">Rp0</strong></div></div>
+							<button class="button add-cart-button" id="add-cart-item" type="button">＋ Tambahkan item</button>
+							<div class="cart-section"><div class="cart-heading"><span>ITEM TRANSAKSI</span><span id="cart-count">0 item</span></div><div id="transaction-cart" class="transaction-cart"><p class="cart-empty">Pilih sparepart lalu tambahkan ke transaksi.</p></div></div>
+							<label class="field-label">CATATAN <span class="optional">OPSIONAL</span><input id="transaction-note" maxlength="300" placeholder="Contoh: Pembelian dari supplier"></label>
+							<div class="total-box"><span>TOTAL TRANSAKSI</span><strong id="transaction-total">Rp0</strong></div>
+							<button class="button button-dark submit-button" type="submit">Simpan transaksi <span>→</span></button><p class="form-message" id="transaction-message" role="status"></p>
+						</form>
+					</section>
+					<section class="panel history-panel"><div class="panel-heading"><div><p class="section-kicker">RIWAYAT</p><h3>Riwayat transaksi</h3></div><button class="button export-button" id="export-transactions" type="button">↓ Ekspor CSV</button></div>
+						<div class="history-filters"><label class="history-search"><span>⌕</span><input id="history-search" type="search" placeholder="Cari item atau catatan..." aria-label="Cari riwayat transaksi"></label><label class="filter-field"><span>JENIS</span><select id="history-type"><option value="all">Semua transaksi</option><option value="sale">Penjualan</option><option value="purchase">Pembelian</option></select></label><label class="filter-field"><span>BULAN</span><input id="history-month" type="month" aria-label="Filter bulan"></label><span class="history-result-count" id="history-result-count"></span></div>
+						<div id="transaction-history" class="history-list"></div><div class="empty-state hidden" id="history-empty">Tidak ada transaksi yang cocok dengan filter.</div>
+					</section>
+				</div>
+			</section>
+		</main>
+	</div>
 
-  <dialog class="part-dialog" id="part-dialog"><form id="part-form"><div class="dialog-heading"><div><p class="section-kicker">KATALOG</p><h2 id="part-dialog-title">Tambah sparepart</h2></div><button type="button" class="icon-button close-dialog" aria-label="Tutup">×</button></div><label class="field-label">KODE SPAREPART<input name="code" required maxlength="40" placeholder="Contoh: OLI-001"></label><label class="field-label">NAMA SPAREPART<input name="name" required maxlength="120" placeholder="Contoh: Oli mesin 10W-40"></label><label class="field-label">KATEGORI<input name="category" required maxlength="80" placeholder="Contoh: Pelumas"></label><div class="dialog-fields"><label class="field-label" id="stock-field-label">STOK AWAL<input name="stock" type="number" min="0" step="1" value="0" required></label><label class="field-label">HARGA BELI<input name="purchase_price" type="number" min="0" step="100" required placeholder="0"></label><label class="field-label">HARGA JUAL<input name="selling_price" type="number" min="0" step="100" required placeholder="0"></label></div><p class="form-message" id="part-message" role="status"></p><button class="button button-dark submit-button" id="part-submit" type="submit">Simpan sparepart <span>→</span></button></form></dialog>
-  <div class="toast" id="toast" role="status"></div>
-  <script src="./app.js" defer></script>
+	<dialog class="part-dialog" id="part-dialog"><form id="part-form"><div class="dialog-heading"><div><p class="section-kicker">KATALOG</p><h2 id="part-dialog-title">Tambah sparepart</h2></div><button type="button" class="icon-button close-dialog" aria-label="Tutup">×</button></div><label class="field-label">KODE SPAREPART<input name="code" required maxlength="40" placeholder="Contoh: OLI-001"></label><label class="field-label">NAMA SPAREPART<input name="name" required maxlength="120" placeholder="Nama sparepart"></label><label class="field-label">KATEGORI<input name="category" required maxlength="80" placeholder="Kategori"></label><div class="dialog-fields"><label class="field-label" id="stock-field-label">STOK AWAL<input name="stock" type="number" min="0" step="1" value="0" required></label><label class="field-label">HARGA BELI<input name="purchase_price" type="number" min="0" step="100" required></label><label class="field-label">HARGA JUAL<input name="selling_price" type="number" min="0" step="100" required></label></div><p class="form-message" id="part-message" role="status"></p><button class="button button-dark submit-button" id="part-submit" type="submit">Simpan sparepart <span>→</span></button></form></dialog>
+	<div class="toast" id="toast" role="status"></div>
+	<script src="./app.js" defer></script>
 </body>
 </html>
