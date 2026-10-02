@@ -178,10 +178,11 @@ revoke all on function public.apply_transaction_item() from public, anon, authen
 revoke all on function public.reverse_transaction_item_stock() from public, anon, authenticated;
 revoke all on function public.refresh_transaction_total() from public, anon, authenticated;
 revoke all on function public.create_transaction(text, text, jsonb) from public, anon, authenticated;
-grant execute on function public.create_transaction(text, text, jsonb) to service_role;
-
+revoke all on public.spareparts, public.transactions, public.transaction_items from anon, authenticated;
+revoke update (code, name, category, purchase_price, selling_price) on public.spareparts from authenticated;
 grant usage on schema public to anon;
 grant select, insert, delete on public.spareparts to anon;
+grant update (code, name, category, purchase_price, selling_price) on public.spareparts to anon;
 grant select on public.transactions, public.transaction_items to anon;
 grant execute on function public.create_transaction(text, text, jsonb) to anon;
 
@@ -189,6 +190,8 @@ drop policy if exists spareparts_public_read on public.spareparts;
 create policy spareparts_public_read on public.spareparts for select to anon using (true);
 drop policy if exists spareparts_public_insert on public.spareparts;
 create policy spareparts_public_insert on public.spareparts for insert to anon with check (true);
+drop policy if exists spareparts_public_update on public.spareparts;
+create policy spareparts_public_update on public.spareparts for update to anon using (true) with check (true);
 drop policy if exists spareparts_public_delete on public.spareparts;
 create policy spareparts_public_delete on public.spareparts for delete to anon using (true);
 
@@ -196,3 +199,11 @@ drop policy if exists transactions_public_read on public.transactions;
 create policy transactions_public_read on public.transactions for select to anon using (true);
 drop policy if exists transaction_items_public_read on public.transaction_items;
 create policy transaction_items_public_read on public.transaction_items for select to anon using (true);
+
+drop policy if exists spareparts_admin_read on public.spareparts;
+drop policy if exists spareparts_admin_insert on public.spareparts;
+drop policy if exists spareparts_admin_update on public.spareparts;
+drop policy if exists spareparts_admin_delete on public.spareparts;
+drop policy if exists transactions_admin_read on public.transactions;
+drop policy if exists transaction_items_admin_read on public.transaction_items;
+drop function if exists public.is_admin();

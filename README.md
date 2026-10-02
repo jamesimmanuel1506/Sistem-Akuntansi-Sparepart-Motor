@@ -18,12 +18,14 @@ Aplikasi pencatatan inventaris, pembelian, dan penjualan dengan frontend HTML/CS
 ## Menyiapkan Supabase
 
 1. Buka project Supabase Anda.
-2. Buka **SQL Editor**, lalu jalankan seluruh isi `supabase/schema.sql`. Ini membuat tiga tabel dan kebijakan akses publik; tabel tidak dibuat otomatis saat aplikasi dijalankan.
-3. Project URL dan publishable key digunakan oleh backend. Tidak diperlukan Secret key.
+2. Buka **SQL Editor**, lalu jalankan seluruh isi `supabase/schema.sql`.
+3. Aplikasi tidak memakai fitur login atau Secret key. Publishable key digunakan dengan akses role `anon`.
+
+Mode tanpa login ini memberi akses anonim untuk membaca data, menambah/mengubah/menghapus katalog, dan mencatat transaksi. Gunakan hanya untuk demo atau lingkungan lokal; siapa pun yang dapat mengakses project dapat mengubah data.
 
 ## Menjalankan aplikasi
 
-Membutuhkan Node.js 18 atau lebih baru; tidak diperlukan `package.json` maupun file environment. Publishable key pada konfigurasi saat ini memang dirancang untuk dibagikan, tetapi SQL memberi akses baca/tambah/hapus secara anonim. Jangan gunakan mode ini untuk data usaha yang perlu dibatasi.
+Membutuhkan Node.js 18 atau lebih baru; tidak diperlukan `package.json` maupun file environment. Aplikasi langsung terbuka tanpa login.
 
 - `SUPABASE_URL`: opsional jika memakai project URL bawaan di `app.js`
 - `SUPABASE_PUBLISHABLE_KEY`: opsional jika memakai publishable key bawaan di `app.js`
@@ -35,7 +37,7 @@ PowerShell:
 node app.js
 ```
 
-Buka `http://localhost:3000`. Untuk menerapkan perubahan skema atau kebijakan akses, jalankan kembali SQL di Supabase SQL Editor.
+Buka `http://localhost:3000`. Jangan gunakan Live Server untuk alur API. Untuk menerapkan perubahan skema atau kebijakan akses, jalankan kembali SQL di Supabase SQL Editor.
 
 ## ERD
 

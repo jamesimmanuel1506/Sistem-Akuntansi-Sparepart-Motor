@@ -1,13 +1,16 @@
 const rupiah = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Number(value || 0));
 const dateFormatter = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
 const timeFormatter = new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit' });
-const state = { parts: [], transactions: [], view: 'overview' };
+const state = { parts: [], transactions: [], cart: [], view: 'overview' };
 const $ = (selector) => document.querySelector(selector);
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || 'Permintaan gagal.');
@@ -30,6 +33,19 @@ function transactionLabel(type) {
   return type === 'sale' ? 'Penjualan' : 'Pembelian stok';
 }
 
+function filteredTransactions() {
+  const searchTerm = $('#history-search').value.trim().toLocaleLowerCase('id-ID');
+  const selectedType = $('#history-type').value;
+  const selectedMonth = $('#history-month').value;
+  return state.transactions.filter((transaction) => {
+    if (selectedType !== 'all' && transaction.type !== selectedType) return false;
+    if (selectedMonth && transaction.transaction_date.slice(0, 7) !== selectedMonth) return false;
+    if (!searchTerm) return true;
+    const itemsText = (transaction.transaction_items || []).map((item) => `${item.spareparts?.name || ''} ${item.spareparts?.code || ''}`).join(' ');
+    return `${transaction.note} ${itemsText}`.toLocaleLowerCase('id-ID').includes(searchTerm);
+  });
+}
+
 function renderSummary(summary) {
   $('#metric-stock-value').textContent = rupiah(summary.stock_value);
   $('#metric-stock-units').textContent = Number(summary.stock_units).toLocaleString('id-ID');
@@ -47,7 +63,7 @@ function renderParts() {
     <td>${escapeHtml(part.category)}</td>
     <td><span class="stock-badge ${part.stock <= 3 ? 'low' : ''}">${Number(part.stock).toLocaleString('id-ID')} unit</span></td>
     <td>${rupiah(part.purchase_price)}</td><td>${rupiah(part.selling_price)}</td>
-    <td><button class="row-action" data-delete-part="${escapeHtml(part.id)}" title="Hapus sparepart" aria-label="Hapus ${escapeHtml(part.name)}">×</button></td>
+    <td class="part-actions"><button class="row-action edit-action" data-edit-part="${escapeHtml(part.id)}" title="Edit sparepart" aria-label="Edit ${escapeHtml(part.name)}">✎</button><button class="row-action" data-delete-part="${escapeHtml(part.id)}" title="Hapus sparepart" aria-label="Hapus ${escapeHtml(part.name)}">×</button></td>
   </tr>`).join('');
   $('#inventory-empty').classList.toggle('hidden', matchingParts.length > 0);
   const overviewParts = state.parts.slice(0, 6);
@@ -73,7 +89,9 @@ function renderTransactions() {
   </div>`).join('');
   $('#recent-transactions').innerHTML = recentMarkup;
   $('#transactions-empty').classList.toggle('hidden', renderRecent.length > 0);
-  $('#transaction-history').innerHTML = state.transactions.map((transaction) => {
+  const visibleTransactions = filteredTransactions();
+  $('#history-result-count').textContent = `${visibleTransactions.length} dari ${state.transactions.length} transaksi`;
+  $('#transaction-history').innerHTML = visibleTransactions.map((transaction) => {
     const items = (transaction.transaction_items || []).map((item) => `${item.spareparts?.name || 'Sparepart'} × ${item.quantity}`).join(', ');
     return `<article class="history-entry">
       <span class="history-icon ${transaction.type}">${transaction.type === 'sale' ? '↗' : '↙'}</span>
@@ -81,17 +99,66 @@ function renderTransactions() {
       <div class="history-total">${rupiah(transaction.total)}<small>${timeFormatter.format(new Date(transaction.transaction_date))}</small></div>
     </article>`;
   }).join('');
-  $('#history-empty').classList.toggle('hidden', state.transactions.length > 0);
+  $('#history-empty').classList.toggle('hidden', visibleTransactions.length > 0);
+}
+
+function exportTransactions() {
+  const transactions = filteredTransactions();
+  const quote = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+  const rows = [['Tanggal', 'Waktu', 'Jenis', 'Kode sparepart', 'Nama sparepart', 'Jumlah', 'Harga satuan', 'Subtotal item', 'Total transaksi', 'Catatan']];
+  transactions.forEach((transaction) => {
+    (transaction.transaction_items || []).forEach((item) => rows.push([
+      dateFormatter.format(new Date(transaction.transaction_date)),
+      timeFormatter.format(new Date(transaction.transaction_date)),
+      transactionLabel(transaction.type),
+      item.spareparts?.code || '',
+      item.spareparts?.name || '',
+      item.quantity,
+      item.unit_price,
+      item.subtotal,
+      transaction.total,
+      transaction.note || '',
+    ]));
+  });
+  if (!transactions.length) {
+    notify('Tidak ada transaksi untuk diekspor.');
+    return;
+  }
+  const csv = `\uFEFF${rows.map((row) => row.map(quote).join(',')).join('\r\n')}`;
+  const downloadUrl = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = `riwayat-transaksi-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(downloadUrl);
+  notify(`CSV ${transactions.length} transaksi diunduh.`);
 }
 
 function updateTransactionPrice() {
   const part = state.parts.find((item) => item.id === $('#transaction-part').value);
   const price = part ? Number($('#transaction-type').value === 'sale' ? part.selling_price : part.purchase_price) : 0;
-  const quantity = Math.max(0, Number($('#transaction-quantity').value) || 0);
   $('#unit-price').textContent = rupiah(price);
-  $('#transaction-total').textContent = rupiah(price * quantity);
   const quantityInput = $('#transaction-quantity');
   quantityInput.max = part && $('#transaction-type').value === 'sale' ? part.stock : '';
+  renderCart();
+}
+
+function renderCart() {
+  const type = $('#transaction-type').value;
+  const cart = state.cart.map((item) => {
+    const part = state.parts.find((entry) => entry.id === item.sparepart_id);
+    if (!part) return null;
+    const unitPrice = Number(type === 'sale' ? part.selling_price : part.purchase_price);
+    return { ...item, part, unitPrice, subtotal: unitPrice * item.quantity };
+  }).filter(Boolean);
+
+  $('#cart-count').textContent = `${cart.length} item`;
+  $('#transaction-cart').innerHTML = cart.length ? cart.map((item) => `<div class="cart-row">
+    <div class="cart-item-copy"><strong>${escapeHtml(item.part.name)}</strong><small>${escapeHtml(item.part.code)} · ${rupiah(item.unitPrice)} × ${item.quantity}</small></div>
+    <strong class="cart-subtotal">${rupiah(item.subtotal)}</strong>
+    <button class="cart-remove" type="button" data-remove-cart="${escapeHtml(item.sparepart_id)}" aria-label="Hapus ${escapeHtml(item.part.name)} dari transaksi">×</button>
+  </div>`).join('') : '<p class="cart-empty">Pilih sparepart lalu tambahkan ke transaksi.</p>';
+  $('#transaction-total').textContent = rupiah(cart.reduce((sum, item) => sum + item.subtotal, 0));
 }
 
 async function refresh() {
@@ -126,11 +193,71 @@ $('#part-search').addEventListener('input', renderParts);
 $('#transaction-type').addEventListener('change', updateTransactionPrice);
 $('#transaction-part').addEventListener('change', updateTransactionPrice);
 $('#transaction-quantity').addEventListener('input', updateTransactionPrice);
-$('#open-part-dialog').addEventListener('click', () => { $('#part-message').textContent = ''; $('#part-dialog').showModal(); });
+$('#add-cart-item').addEventListener('click', () => {
+  const message = $('#transaction-message');
+  message.textContent = '';
+  const part = state.parts.find((item) => item.id === $('#transaction-part').value);
+  const quantity = Number($('#transaction-quantity').value);
+  if (!part) { message.textContent = 'Pilih sparepart terlebih dahulu.'; return; }
+  if (!Number.isInteger(quantity) || quantity < 1) { message.textContent = 'Jumlah harus berupa bilangan bulat minimal 1.'; return; }
+
+  const existingItem = state.cart.find((item) => item.sparepart_id === part.id);
+  const nextQuantity = quantity + (existingItem?.quantity || 0);
+  if ($('#transaction-type').value === 'sale' && nextQuantity > part.stock) {
+    message.textContent = `Stok ${part.name} hanya ${part.stock} unit.`;
+    return;
+  }
+
+  if (existingItem) existingItem.quantity = nextQuantity;
+  else state.cart.push({ sparepart_id: part.id, quantity });
+  $('#transaction-quantity').value = '1';
+  renderCart();
+});
+$('#transaction-cart').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-remove-cart]');
+  if (!button) return;
+  state.cart = state.cart.filter((item) => item.sparepart_id !== button.dataset.removeCart);
+  renderCart();
+});
+$('#history-search').addEventListener('input', renderTransactions);
+$('#history-type').addEventListener('change', renderTransactions);
+$('#history-month').addEventListener('change', renderTransactions);
+$('#export-transactions').addEventListener('click', exportTransactions);
+$('#open-part-dialog').addEventListener('click', () => {
+  const form = $('#part-form');
+  form.reset();
+  delete form.dataset.editId;
+  form.elements.stock.readOnly = false;
+  $('#stock-field-label').firstChild.textContent = 'STOK AWAL';
+  $('#part-dialog-title').textContent = 'Tambah sparepart';
+  $('#part-submit').firstChild.textContent = 'Simpan sparepart ';
+  $('#part-message').textContent = '';
+  $('#part-dialog').showModal();
+});
 $('.close-dialog').addEventListener('click', () => $('#part-dialog').close());
 $('#part-dialog').addEventListener('click', (event) => { if (event.target === $('#part-dialog')) $('#part-dialog').close(); });
 
 document.addEventListener('click', async (event) => {
+  const editButton = event.target.closest('[data-edit-part]');
+  if (editButton) {
+    const part = state.parts.find((item) => item.id === editButton.dataset.editPart);
+    if (!part) return;
+    const form = $('#part-form');
+    form.dataset.editId = part.id;
+    form.elements.code.value = part.code;
+    form.elements.name.value = part.name;
+    form.elements.category.value = part.category;
+    form.elements.stock.value = part.stock;
+    form.elements.stock.readOnly = true;
+    form.elements.purchase_price.value = part.purchase_price;
+    form.elements.selling_price.value = part.selling_price;
+    $('#stock-field-label').firstChild.textContent = 'STOK SAAT INI';
+    $('#part-dialog-title').textContent = 'Edit sparepart';
+    $('#part-submit').firstChild.textContent = 'Simpan perubahan ';
+    $('#part-message').textContent = '';
+    $('#part-dialog').showModal();
+    return;
+  }
   const button = event.target.closest('[data-delete-part]');
   if (!button) return;
   if (!window.confirm('Hapus sparepart ini? Item yang sudah memiliki riwayat transaksi tidak dapat dihapus.')) return;
@@ -150,11 +277,18 @@ $('#part-form').addEventListener('submit', async (event) => {
   message.textContent = '';
   const form = new FormData(partForm);
   const body = Object.fromEntries(form.entries());
+  const editId = partForm.dataset.editId;
   try {
-    await api('/api/parts', { method: 'POST', body: JSON.stringify(body) });
+    const isEditing = Boolean(editId);
+    if (isEditing) delete body.stock;
+    await api(isEditing ? `/api/parts/${editId}` : '/api/parts', {
+      method: isEditing ? 'PATCH' : 'POST',
+      body: JSON.stringify(body),
+    });
+    delete partForm.dataset.editId;
     partForm.reset();
     $('#part-dialog').close();
-    notify('Sparepart berhasil ditambahkan.');
+    notify(isEditing ? 'Perubahan sparepart berhasil disimpan.' : 'Sparepart berhasil ditambahkan.');
     try {
       await refresh();
     } catch (error) {
@@ -170,19 +304,29 @@ $('#transaction-form').addEventListener('submit', async (event) => {
   const message = $('#transaction-message');
   message.textContent = '';
   const type = $('#transaction-type').value;
-  const part = state.parts.find((item) => item.id === $('#transaction-part').value);
-  const quantity = Number($('#transaction-quantity').value);
-  if (!part) { message.textContent = 'Pilih sparepart terlebih dahulu.'; return; }
-  if (type === 'sale' && quantity > part.stock) { message.textContent = 'Jumlah melebihi stok yang tersedia.'; return; }
+  if (!state.cart.length) { message.textContent = 'Tambahkan minimal satu sparepart ke transaksi.'; return; }
+  if (type === 'sale') {
+    const unavailableItem = state.cart.find((item) => {
+      const part = state.parts.find((entry) => entry.id === item.sparepart_id);
+      return !part || item.quantity > part.stock;
+    });
+    if (unavailableItem) { message.textContent = 'Jumlah di keranjang melebihi stok terbaru.'; return; }
+  }
   try {
     await api('/api/transactions', {
       method: 'POST',
-      body: JSON.stringify({ type, note: $('#transaction-note').value, items: [{ sparepart_id: part.id, quantity }] }),
+      body: JSON.stringify({ type, note: $('#transaction-note').value, items: state.cart.map(({ sparepart_id, quantity }) => ({ sparepart_id, quantity })) }),
     });
+    state.cart = [];
     $('#transaction-note').value = '';
     $('#transaction-quantity').value = '1';
-    await refresh();
+    renderCart();
     notify(`${transactionLabel(type)} berhasil disimpan.`);
+    try {
+      await refresh();
+    } catch (error) {
+      notify(`Transaksi tersimpan, tetapi tampilan belum diperbarui: ${error.message}`);
+    }
   } catch (error) {
     message.textContent = error.message;
   }

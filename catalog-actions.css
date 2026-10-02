@@ -1,0 +1,1 @@
+.part-actions{display:flex;align-items:center;justify-content:flex-end;gap:5px}.part-actions .row-action{width:30px;height:30px;border-radius:3px;font-size:17px}.part-actions .edit-action{color:#687548}.part-actions .row-action:hover{background:#f0f2e9;color:#38412c}.field-label input[readonly]{background:#f1f2ed;color:#777d73;cursor:not-allowed}
