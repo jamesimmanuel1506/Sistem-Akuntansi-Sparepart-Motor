@@ -1,311 +1,393 @@
-const SUPABASE_URL = 'https://nbpmdpejaxrxkgowmvmn.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_RXDP8Nb_wLdXLjFQhkDjnw_A7BNuD-o';
-const USE_DIRECT_SUPABASE = location.hostname.endsWith('.github.io') || location.port === '5500';
-const state = { parts: [], transactions: [], cart: [], view: 'overview' };
-const $ = (selector) => document.querySelector(selector);
-const rupiah = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Number(value || 0));
-const dateFormatter = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-const timeFormatter = new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit' });
+'use strict';
 
-async function supabaseRequest(path, options = {}) {
-	const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-		...options,
-		headers: { apikey: SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json', ...(options.headers || {}) },
-	});
-	const text = await response.text();
-	let data = null;
-	if (text) {
-		try { data = JSON.parse(text); } catch { data = text; }
-	}
-	if (!response.ok) {
-		const message = data?.code === '23505'
-			? 'Kode sparepart sudah terdaftar. Gunakan kode lain.'
-			: data?.message || data?.details || 'Permintaan database gagal.';
-		throw Object.assign(new Error(message), { status: response.status });
-	}
-	return data;
+const http = require('node:http');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+
+const ROOT = path.resolve(__dirname, '..');
+const PORT = Number(process.env.PORT || 3000);
+const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/+$/, '');
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const APP_ORIGINS = new Set((process.env.APP_ORIGINS || 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean));
+const MAX_BODY_BYTES = 64 * 1024;
+
+const staticFiles = new Map([
+  ['/', ['frontend/index.html', 'text/html; charset=utf-8']],
+  ['/styles.css', ['frontend/styles.css', 'text/css; charset=utf-8']],
+  ['/config.js', ['frontend/config.js', 'text/javascript; charset=utf-8']],
+  ['/app.js', ['frontend/app.js', 'text/javascript; charset=utf-8']],
+]);
+
+function sendJson(response, status, body) {
+  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  response.end(JSON.stringify(body));
 }
 
-async function directApi(path, options = {}) {
-	const method = options.method || 'GET';
-	const route = new URL(path, location.href).pathname;
-	if (route === '/api/parts' && method === 'GET') return supabaseRequest('spareparts?select=*&order=name.asc');
-	if (route === '/api/parts' && method === 'POST') {
-		return (await supabaseRequest('spareparts', { method: 'POST', headers: { Prefer: 'return=representation' }, body: options.body }))[0];
-	}
-	if (route.startsWith('/api/parts/') && method === 'PATCH') {
-		const id = route.slice('/api/parts/'.length);
-		const rows = await supabaseRequest(`spareparts?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: options.body });
-		if (!rows.length) throw new Error('Sparepart tidak ditemukan. Jalankan SQL terbaru di Supabase untuk mengaktifkan izin edit tanpa login.');
-		return rows[0];
-	}
-	if (route.startsWith('/api/parts/') && method === 'DELETE') {
-		const id = route.slice('/api/parts/'.length);
-		await supabaseRequest(`spareparts?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' });
-		return { ok: true };
-	}
-	if (route === '/api/transactions' && method === 'GET') {
-		return supabaseRequest('transactions?select=*,transaction_items(quantity,unit_price,subtotal,spareparts(name,code))&order=transaction_date.desc&limit=100');
-	}
-	if (route === '/api/transactions' && method === 'POST') {
-		const body = JSON.parse(options.body || '{}');
-		return { id: await supabaseRequest('rpc/create_transaction', { method: 'POST', body: JSON.stringify({ p_type: body.type, p_note: body.note || '', p_items: body.items }) }) };
-	}
-	if (route === '/api/summary' && method === 'GET') {
-		const [parts, transactions] = await Promise.all([
-			supabaseRequest('spareparts?select=stock,purchase_price'),
-			supabaseRequest('transactions?select=type,total,transaction_date&order=transaction_date.desc&limit=1000'),
-		]);
-		const sales = transactions.filter((item) => item.type === 'sale');
-		return {
-			part_count: parts.length,
-			stock_units: parts.reduce((sum, item) => sum + item.stock, 0),
-			stock_value: parts.reduce((sum, item) => sum + item.stock * Number(item.purchase_price), 0),
-			sales_total: sales.reduce((sum, item) => sum + Number(item.total), 0),
-			purchase_total: transactions.filter((item) => item.type === 'purchase').reduce((sum, item) => sum + Number(item.total), 0),
-			transactions_today: transactions.filter((item) => item.transaction_date.slice(0, 10) === new Date().toISOString().slice(0, 10)).length,
-		};
-	}
-	throw new Error('Endpoint aplikasi tidak dikenal.');
+async function readJson(request) {
+  let body = '';
+  for await (const chunk of request) {
+    body += chunk;
+    if (Buffer.byteLength(body) > MAX_BODY_BYTES) {
+      const error = new Error('Ukuran data terlalu besar.');
+      error.status = 413;
+      throw error;
+    }
+  }
+  let payload;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    const error = new Error('Format JSON tidak valid.');
+    error.status = 400;
+    throw error;
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    const error = new Error('Data harus berupa objek JSON.');
+    error.status = 400;
+    throw error;
+  }
+  return payload;
 }
 
-async function api(path, options = {}) {
-	if (USE_DIRECT_SUPABASE) return directApi(path, options);
-	const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } });
-	const data = await response.json().catch(() => ({}));
-	if (!response.ok) throw new Error(data.error || 'Permintaan gagal.');
-	return data;
+async function supabase(pathname, options = {}) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    const error = new Error('Konfigurasi SUPABASE_URL dan SUPABASE_SERVICE_ROLE_KEY belum diatur.');
+    error.status = 503;
+    throw error;
+  }
+  let response;
+  try {
+    response = await fetch(`${SUPABASE_URL}/rest/v1/${pathname}`, {
+      ...options,
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+  } catch (cause) {
+    const error = new Error('Tidak dapat terhubung ke Supabase.');
+    error.status = 502;
+    error.cause = cause;
+    throw error;
+  }
+  const text = await response.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!response.ok) {
+    const message = data && typeof data === 'object' ? data.message || data.details || data.hint : '';
+    if (data?.code === '23503') {
+      const error = new Error('Data tidak dapat dihapus karena sudah digunakan dalam transaksi. Riwayat transaksi tetap dipertahankan.');
+      error.status = 409;
+      throw error;
+    }
+    const error = new Error(message || `Permintaan database gagal (${response.status}).`);
+    error.status = response.status >= 500 ? 502 : 400;
+    throw error;
+  }
+  return data;
 }
 
-function escapeHtml(value) {
-	return String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+function requiredText(value, label, maxLength) {
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > maxLength) {
+    throw Object.assign(new Error(`${label} wajib diisi (maksimal ${maxLength} karakter).`), { status: 400 });
+  }
+  return value.trim();
 }
 
-function notify(message) {
-	const toast = $('#toast');
-	toast.textContent = message;
-	toast.classList.add('show');
-	clearTimeout(notify.timeout);
-	notify.timeout = setTimeout(() => toast.classList.remove('show'), 3200);
+function optionalText(value, label, maxLength) {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string' || value.length > maxLength) {
+    throw Object.assign(new Error(`${label} maksimal ${maxLength} karakter.`), { status: 400 });
+  }
+  return value.trim() || null;
 }
 
-function transactionLabel(type) { return type === 'sale' ? 'Penjualan' : 'Pembelian stok'; }
-
-function filteredTransactions() {
-	const search = $('#history-search').value.trim().toLocaleLowerCase('id-ID');
-	const type = $('#history-type').value;
-	const month = $('#history-month').value;
-	return state.transactions.filter((transaction) => {
-		if (type !== 'all' && transaction.type !== type) return false;
-		if (month && transaction.transaction_date.slice(0, 7) !== month) return false;
-		const itemText = (transaction.transaction_items || []).map((item) => `${item.spareparts?.name || ''} ${item.spareparts?.code || ''}`).join(' ');
-		return !search || `${transaction.note || ''} ${itemText}`.toLocaleLowerCase('id-ID').includes(search);
-	});
+function nonNegativeAmount(value, label) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0 || amount > 999999999999.99 || !/^\d+(\.\d{1,2})?$/.test(String(value))) {
+    throw Object.assign(new Error(`${label} harus berupa angka tidak negatif dengan maksimal 2 angka desimal.`), { status: 400 });
+  }
+  return amount;
 }
 
-function renderSummary(summary) {
-	$('#metric-stock-value').textContent = rupiah(summary.stock_value);
-	$('#metric-stock-units').textContent = Number(summary.stock_units).toLocaleString('id-ID');
-	$('#metric-part-count').textContent = Number(summary.part_count).toLocaleString('id-ID');
-	$('#metric-sales').textContent = rupiah(summary.sales_total);
-	$('#metric-today').textContent = Number(summary.transactions_today).toLocaleString('id-ID');
+function isValidDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-function renderParts() {
-	const search = $('#part-search').value.toLocaleLowerCase('id-ID');
-	const matching = state.parts.filter((part) => `${part.code} ${part.name} ${part.category}`.toLocaleLowerCase('id-ID').includes(search));
-	$('#inventory-count').textContent = `${matching.length} item`;
-	$('#inventory-parts').innerHTML = matching.map((part) => `<tr>
-		<td><span class="part-code">${escapeHtml(part.code)}</span></td><td><strong>${escapeHtml(part.name)}</strong></td><td>${escapeHtml(part.category)}</td>
-		<td><span class="stock-badge ${part.stock <= 3 ? 'low' : ''}">${Number(part.stock).toLocaleString('id-ID')} unit</span></td>
-		<td>${rupiah(part.purchase_price)}</td><td>${rupiah(part.selling_price)}</td>
-		<td class="part-actions"><button class="row-action edit-action" data-edit-part="${escapeHtml(part.id)}" aria-label="Edit ${escapeHtml(part.name)}" title="Edit">✎</button><button class="row-action" data-delete-part="${escapeHtml(part.id)}" aria-label="Hapus ${escapeHtml(part.name)}" title="Hapus">×</button></td>
-	</tr>`).join('');
-	$('#inventory-empty').classList.toggle('hidden', matching.length > 0);
-	const overview = state.parts.slice(0, 6);
-	$('#overview-parts').innerHTML = overview.map((part) => `<tr><td><strong>${escapeHtml(part.name)}</strong><span class="part-code">${escapeHtml(part.code)}</span></td><td>${escapeHtml(part.category)}</td><td><span class="stock-badge ${part.stock <= 3 ? 'low' : ''}">${Number(part.stock).toLocaleString('id-ID')}</span></td><td>${rupiah(part.selling_price)}</td></tr>`).join('');
-	$('#overview-empty').classList.toggle('hidden', overview.length > 0);
-	const selected = $('#transaction-part').value;
-	$('#transaction-part').innerHTML = '<option value="">Pilih sparepart...</option>' + state.parts.map((part) => `<option value="${escapeHtml(part.id)}">${escapeHtml(part.code)} · ${escapeHtml(part.name)} (${Number(part.stock)} tersedia)</option>`).join('');
-	if (state.parts.some((part) => part.id === selected)) $('#transaction-part').value = selected;
-	updateTransactionPrice();
+function validUuid(value, label) {
+  if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw Object.assign(new Error(`${label} tidak valid.`), { status: 400 });
+  }
+  return value;
 }
 
-function renderCart() {
-	const type = $('#transaction-type').value;
-	const items = state.cart.map((entry) => {
-		const part = state.parts.find((candidate) => candidate.id === entry.sparepart_id);
-		if (!part) return null;
-		const unitPrice = Number(type === 'sale' ? part.selling_price : part.purchase_price);
-		return { ...entry, part, unitPrice, subtotal: unitPrice * entry.quantity };
-	}).filter(Boolean);
-	$('#cart-count').textContent = `${items.length} item`;
-	$('#transaction-cart').innerHTML = items.length ? items.map((item) => `<div class="cart-row"><div class="cart-item-copy"><strong>${escapeHtml(item.part.name)}</strong><small>${escapeHtml(item.part.code)} · ${rupiah(item.unitPrice)} × ${item.quantity}</small></div><strong class="cart-subtotal">${rupiah(item.subtotal)}</strong><button type="button" class="cart-remove" data-remove-cart="${escapeHtml(item.sparepart_id)}" aria-label="Hapus dari transaksi">×</button></div>`).join('') : '<p class="cart-empty">Pilih sparepart lalu tambahkan ke transaksi.</p>';
-	$('#transaction-total').textContent = rupiah(items.reduce((total, item) => total + item.subtotal, 0));
+function transactionPayload(body) {
+  if (!['purchase', 'sale'].includes(body.transaction_type)) {
+    throw Object.assign(new Error('Jenis transaksi tidak valid.'), { status: 400 });
+  }
+  const partyId = validUuid(body.party_id, 'Pelanggan atau pemasok');
+  if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 100) {
+    throw Object.assign(new Error('Transaksi harus memiliki 1 sampai 100 rincian barang.'), { status: 400 });
+  }
+  const items = body.items.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw Object.assign(new Error('Rincian barang tidak valid.'), { status: 400 });
+    }
+    const quantity = Number(item.quantity);
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 2147483647) {
+      throw Object.assign(new Error('Jumlah barang harus berupa bilangan bulat positif.'), { status: 400 });
+    }
+    return {
+      spare_part_id: validUuid(item.spare_part_id, 'Sparepart'),
+      quantity,
+      unit_price: nonNegativeAmount(item.unit_price, 'Harga satuan'),
+    };
+  });
+  if (!isValidDate(body.transaction_date)) {
+    throw Object.assign(new Error('Tanggal transaksi tidak valid.'), { status: 400 });
+  }
+  return {
+    p_transaction_type: body.transaction_type,
+    p_party_id: partyId,
+    p_transaction_date: body.transaction_date,
+    p_notes: optionalText(body.notes, 'Catatan', 500),
+    p_items: items,
+  };
 }
 
-function updateTransactionPrice() {
-	const part = state.parts.find((item) => item.id === $('#transaction-part').value);
-	const type = $('#transaction-type').value;
-	$('#unit-price').textContent = part ? rupiah(type === 'sale' ? part.selling_price : part.purchase_price) : rupiah(0);
-	$('#transaction-quantity').max = part && type === 'sale' ? part.stock : '';
-	renderCart();
+async function fetchAllPages(resource, pageSize = 1000) {
+  const rows = [];
+  const separator = resource.includes('?') ? '&' : '?';
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await supabase(`${resource}${separator}limit=${pageSize}&offset=${offset}`);
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
 }
 
-function renderTransactions() {
-	const recent = state.transactions.slice(0, 5);
-	$('#recent-transactions').innerHTML = recent.map((transaction) => `<div class="recent-item"><span class="recent-icon ${transaction.type}">${transaction.type === 'sale' ? '↗' : '↙'}</span><div class="recent-copy"><strong>${transactionLabel(transaction.type)}</strong><small>${dateFormatter.format(new Date(transaction.transaction_date))} · ${transaction.transaction_items?.length || 0} item</small></div><div class="recent-amount">${rupiah(transaction.total)}<small>${timeFormatter.format(new Date(transaction.transaction_date))}</small></div></div>`).join('');
-	$('#transactions-empty').classList.toggle('hidden', recent.length > 0);
-	const transactions = filteredTransactions();
-	$('#history-result-count').textContent = `${transactions.length} dari ${state.transactions.length} transaksi`;
-	$('#transaction-history').innerHTML = transactions.map((transaction) => {
-		const descriptions = (transaction.transaction_items || []).map((item) => `${item.spareparts?.code || ''} ${item.spareparts?.name || 'Sparepart'} × ${item.quantity}`).join(', ');
-		return `<article class="history-entry"><span class="history-icon ${transaction.type}">${transaction.type === 'sale' ? '↗' : '↙'}</span><div class="history-description"><strong>${transactionLabel(transaction.type)}${transaction.note ? ` · ${escapeHtml(transaction.note)}` : ''}</strong><small>${dateFormatter.format(new Date(transaction.transaction_date))} · ${escapeHtml(descriptions)}</small></div><div class="history-total">${rupiah(transaction.total)}<small>${timeFormatter.format(new Date(transaction.transaction_date))}</small></div></article>`;
-	}).join('');
-	$('#history-empty').classList.toggle('hidden', transactions.length > 0);
+async function handleApi(request, response, url) {
+  const { pathname } = url;
+  if (request.method === 'GET' && pathname === '/api/products') {
+    return sendJson(response, 200, await fetchAllPages('spare_parts?select=id,sku,name,category,stock,cost_price,selling_price,is_active,created_at&is_active=eq.true&order=name.asc'));
+  }
+  if (request.method === 'GET' && pathname === '/api/parties') {
+    return sendJson(response, 200, await fetchAllPages('parties?select=id,name,party_type,phone,created_at&order=name.asc'));
+  }
+  if (request.method === 'GET' && pathname === '/api/transactions') {
+    return sendJson(response, 200, await supabase('transactions?select=id,transaction_type,transaction_date,total_amount,notes,party_id,parties(name),transaction_items(id,spare_part_id,line_number,quantity,unit_price,unit_cost,spare_parts(name,sku))&order=transaction_date.desc,created_at.desc&transaction_items.order=line_number.asc&limit=100'));
+  }
+  if (request.method === 'GET' && pathname === '/api/reports') {
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+    if (!isValidDate(from) || !isValidDate(to)) {
+      throw Object.assign(new Error('Pilih tanggal awal dan akhir laporan yang valid.'), { status: 400 });
+    }
+    if (from > to) {
+      throw Object.assign(new Error('Tanggal awal tidak boleh melewati tanggal akhir.'), { status: 400 });
+    }
+    const transactions = await fetchAllPages(`transactions?select=id,transaction_type,transaction_date,total_amount,notes,parties(name),transaction_items(quantity,unit_price,unit_cost,spare_parts(name,sku))&transaction_date=gte.${from}&transaction_date=lte.${to}&order=transaction_date.desc,created_at.desc,id.asc`);
+    const summary = transactions.reduce((totals, transaction) => {
+      if (transaction.transaction_type === 'sale') {
+        totals.sales += Number(transaction.total_amount);
+        totals.gross_profit += (transaction.transaction_items || []).reduce((sum, item) =>
+          sum + (Number(item.unit_price) - Number(item.unit_cost)) * Number(item.quantity), 0);
+      } else {
+        totals.purchases += Number(transaction.total_amount);
+      }
+      return totals;
+    }, { sales: 0, purchases: 0, gross_profit: 0 });
+    return sendJson(response, 200, { from, to, transaction_count: transactions.length, ...summary, transactions });
+  }
+  if (request.method === 'GET' && pathname === '/api/dashboard') {
+    const [products, transactions] = await Promise.all([
+      fetchAllPages('spare_parts?select=stock&is_active=eq.true'),
+      fetchAllPages('transactions?select=transaction_type,total_amount,transaction_items(quantity,unit_price,unit_cost)'),
+    ]);
+    const result = transactions.reduce((totals, transaction) => {
+      if (transaction.transaction_type === 'sale') {
+        totals.sales += Number(transaction.total_amount);
+        totals.gross_profit += (transaction.transaction_items || []).reduce((sum, item) =>
+          sum + (Number(item.unit_price) - Number(item.unit_cost)) * Number(item.quantity), 0);
+      } else {
+        totals.purchases += Number(transaction.total_amount);
+      }
+      return totals;
+    }, { sales: 0, purchases: 0, gross_profit: 0 });
+    return sendJson(response, 200, {
+      ...result,
+      product_count: products.length,
+      low_stock_count: products.filter((product) => Number(product.stock) <= 5).length,
+    });
+  }
+  if (request.method === 'POST' && pathname === '/api/products') {
+    const body = await readJson(request);
+    const product = {
+      sku: requiredText(body.sku, 'SKU', 40),
+      name: requiredText(body.name, 'Nama sparepart', 120),
+      category: optionalText(body.category, 'Kategori', 80),
+      selling_price: nonNegativeAmount(body.selling_price, 'Harga jual'),
+    };
+    const created = await supabase('spare_parts', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(product),
+    });
+    return sendJson(response, 201, created[0]);
+  }
+  if (request.method === 'POST' && pathname === '/api/parties') {
+    const body = await readJson(request);
+    const partyType = body.party_type;
+    if (!['customer', 'supplier', 'both'].includes(partyType)) {
+      throw Object.assign(new Error('Peran kontak tidak valid.'), { status: 400 });
+    }
+    const party = {
+      name: requiredText(body.name, 'Nama kontak', 120),
+      party_type: partyType,
+      phone: optionalText(body.phone, 'Nomor telepon', 30),
+    };
+    const created = await supabase('parties', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(party),
+    });
+    return sendJson(response, 201, created[0]);
+  }
+  const entityMatch = pathname.match(/^\/api\/(products|parties)\/([^/]+)$/);
+  if (entityMatch && ['PATCH', 'DELETE'].includes(request.method)) {
+    const [, entity, id] = entityMatch;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      throw Object.assign(new Error('ID data tidak valid.'), { status: 400 });
+    }
+    const table = entity === 'products' ? 'spare_parts' : 'parties';
+    const query = `${table}?id=eq.${id}`;
+    if (request.method === 'DELETE') {
+      const deleted = await supabase(query, {
+        method: 'DELETE',
+        headers: { Prefer: 'return=representation' },
+      });
+      if (!deleted.length) {
+        throw Object.assign(new Error('Data tidak ditemukan atau sudah dihapus.'), { status: 404 });
+      }
+      return sendJson(response, 200, { id });
+    }
+    const body = await readJson(request);
+    let updates;
+    if (entity === 'products') {
+      updates = {
+        sku: requiredText(body.sku, 'SKU', 40),
+        name: requiredText(body.name, 'Nama sparepart', 120),
+        category: optionalText(body.category, 'Kategori', 80),
+        selling_price: nonNegativeAmount(body.selling_price, 'Harga jual'),
+      };
+    } else {
+      if (!['customer', 'supplier', 'both'].includes(body.party_type)) {
+        throw Object.assign(new Error('Peran kontak tidak valid.'), { status: 400 });
+      }
+      updates = {
+        name: requiredText(body.name, 'Nama kontak', 120),
+        party_type: body.party_type,
+        phone: optionalText(body.phone, 'Nomor telepon', 30),
+      };
+    }
+    const updated = await supabase(query, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(updates),
+    });
+    if (!updated.length) {
+      throw Object.assign(new Error('Data tidak ditemukan atau sudah dihapus.'), { status: 404 });
+    }
+    return sendJson(response, 200, updated[0]);
+  }
+  if (request.method === 'POST' && pathname === '/api/transactions') {
+    const payload = transactionPayload(await readJson(request));
+    const result = await supabase('rpc/create_transaction', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return sendJson(response, 201, { id: result });
+  }
+  const transactionMatch = pathname.match(/^\/api\/transactions\/([^/]+)$/);
+  if (transactionMatch && ['PATCH', 'DELETE'].includes(request.method)) {
+    const transactionId = validUuid(transactionMatch[1], 'ID transaksi');
+    if (request.method === 'DELETE') {
+      const deleted = await supabase('rpc/delete_transaction', {
+        method: 'POST',
+        body: JSON.stringify({ p_transaction_id: transactionId }),
+      });
+      return sendJson(response, 200, { id: deleted });
+    }
+    const payload = transactionPayload(await readJson(request));
+    const updated = await supabase('rpc/update_transaction', {
+      method: 'POST',
+      body: JSON.stringify({ p_transaction_id: transactionId, ...payload }),
+    });
+    return sendJson(response, 200, { id: updated });
+  }
+  sendJson(response, 404, { error: 'Endpoint tidak ditemukan.' });
 }
 
-function exportTransactions() {
-	const transactions = filteredTransactions();
-	if (!transactions.length) return notify('Tidak ada transaksi untuk diekspor.');
-	const quote = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-	const rows = [['Tanggal', 'Waktu', 'Jenis', 'Kode sparepart', 'Nama sparepart', 'Jumlah', 'Harga satuan', 'Subtotal item', 'Total transaksi', 'Catatan']];
-	transactions.forEach((transaction) => (transaction.transaction_items || []).forEach((item) => rows.push([
-		dateFormatter.format(new Date(transaction.transaction_date)), timeFormatter.format(new Date(transaction.transaction_date)), transactionLabel(transaction.type),
-		item.spareparts?.code || '', item.spareparts?.name || '', item.quantity, item.unit_price, item.subtotal, transaction.total, transaction.note || '',
-	])));
-	const blob = new Blob([`\uFEFF${rows.map((row) => row.map(quote).join(',')).join('\r\n')}`], { type: 'text/csv;charset=utf-8' });
-	const url = URL.createObjectURL(blob);
-	const link = document.createElement('a');
-	link.href = url;
-	link.download = `riwayat-transaksi-${new Date().toISOString().slice(0, 10)}.csv`;
-	link.click();
-	URL.revokeObjectURL(url);
+async function handleRequest(request, response) {
+  const url = new URL(request.url, 'http://localhost');
+  try {
+    if (url.pathname.startsWith('/api/')) {
+      const origin = request.headers.origin;
+      if (origin && APP_ORIGINS.has(origin)) {
+        response.setHeader('Access-Control-Allow-Origin', origin);
+        response.setHeader('Vary', 'Origin');
+      }
+      if (request.method === 'OPTIONS') {
+        if (!origin || !APP_ORIGINS.has(origin)) {
+          sendJson(response, 403, { error: 'Origin aplikasi tidak diizinkan.' });
+          return;
+        }
+        response.writeHead(204, {
+          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Max-Age': '86400',
+          Vary: 'Origin',
+        });
+        response.end();
+        return;
+      }
+      await handleApi(request, response, url);
+      return;
+    }
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      sendJson(response, 405, { error: 'Metode tidak didukung.' });
+      return;
+    }
+    const asset = staticFiles.get(url.pathname);
+    if (!asset) {
+      sendJson(response, 404, { error: 'Halaman tidak ditemukan.' });
+      return;
+    }
+    const [relativePath, contentType] = asset;
+    const content = await fs.readFile(path.join(ROOT, relativePath));
+    response.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' });
+    response.end(request.method === 'HEAD' ? undefined : content);
+  } catch (error) {
+    if (error.status >= 500) console.error(error);
+    if (!response.headersSent) sendJson(response, error.status || 500, { error: error.message || 'Terjadi kesalahan pada server.' });
+    else response.destroy();
+  }
 }
 
-async function refresh() {
-	const [summary, parts, transactions] = await Promise.all([api('/api/summary'), api('/api/parts'), api('/api/transactions')]);
-	state.parts = parts;
-	state.transactions = transactions;
-	renderSummary(summary);
-	renderParts();
-	renderTransactions();
-}
-
-function showView(view) {
-	state.view = view;
-	document.querySelectorAll('.view').forEach((section) => section.classList.toggle('active', section.id === `view-${view}`));
-	document.querySelectorAll('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
-	const titles = { overview: ['DASHBOARD / TOKO', 'Ringkasan'], inventory: ['KATALOG / SPAREPART', 'Inventaris'], transactions: ['BUKU BESAR / TRANSAKSI', 'Transaksi'] };
-	$('#page-eyebrow').textContent = titles[view][0];
-	$('#page-title').textContent = titles[view][1];
-}
-
-function openPartDialog(part = null) {
-	const form = $('#part-form');
-	form.reset();
-	$('#part-message').textContent = '';
-	if (part) {
-		form.dataset.editId = part.id;
-		form.elements.code.value = part.code;
-		form.elements.name.value = part.name;
-		form.elements.category.value = part.category;
-		form.elements.stock.value = part.stock;
-		form.elements.stock.readOnly = true;
-		$('#stock-field-label').firstChild.textContent = 'STOK SAAT INI';
-		$('#part-dialog-title').textContent = 'Edit sparepart';
-		$('#part-submit').innerHTML = 'Simpan perubahan <span>→</span>';
-	} else {
-		delete form.dataset.editId;
-		form.elements.stock.readOnly = false;
-		$('#stock-field-label').firstChild.textContent = 'STOK AWAL';
-		$('#part-dialog-title').textContent = 'Tambah sparepart';
-		$('#part-submit').innerHTML = 'Simpan sparepart <span>→</span>';
-	}
-	$('#part-dialog').showModal();
-}
-
-document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.view)));
-document.querySelectorAll('[data-open-view]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.openView)));
-$('#quick-transaction').addEventListener('click', () => showView('transactions'));
-$('#part-search').addEventListener('input', renderParts);
-$('#transaction-type').addEventListener('change', updateTransactionPrice);
-$('#transaction-part').addEventListener('change', updateTransactionPrice);
-$('#transaction-quantity').addEventListener('input', updateTransactionPrice);
-$('#add-cart-item').addEventListener('click', () => {
-	const message = $('#transaction-message');
-	message.textContent = '';
-	const part = state.parts.find((item) => item.id === $('#transaction-part').value);
-	const quantity = Number($('#transaction-quantity').value);
-	if (!part) return void (message.textContent = 'Pilih sparepart terlebih dahulu.');
-	if (!Number.isInteger(quantity) || quantity < 1) return void (message.textContent = 'Jumlah harus bilangan bulat minimal 1.');
-	const existing = state.cart.find((item) => item.sparepart_id === part.id);
-	const nextQuantity = quantity + (existing?.quantity || 0);
-	if ($('#transaction-type').value === 'sale' && nextQuantity > part.stock) return void (message.textContent = `Stok ${part.name} hanya ${part.stock} unit.`);
-	if (existing) existing.quantity = nextQuantity;
-	else state.cart.push({ sparepart_id: part.id, quantity });
-	$('#transaction-quantity').value = '1';
-	renderCart();
+http.createServer(handleRequest).listen(PORT, () => {
+  console.log(`RodaKas berjalan pada http://localhost:${PORT}`);
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn('Supabase belum dikonfigurasi; API akan menampilkan error sampai variabel lingkungan diatur.');
+  }
 });
-$('#transaction-cart').addEventListener('click', (event) => {
-	const button = event.target.closest('[data-remove-cart]');
-	if (!button) return;
-	state.cart = state.cart.filter((item) => item.sparepart_id !== button.dataset.removeCart);
-	renderCart();
-});
-$('#history-search').addEventListener('input', renderTransactions);
-$('#history-type').addEventListener('change', renderTransactions);
-$('#history-month').addEventListener('change', renderTransactions);
-$('#export-transactions').addEventListener('click', exportTransactions);
-$('#open-part-dialog').addEventListener('click', () => openPartDialog());
-$('.close-dialog').addEventListener('click', () => $('#part-dialog').close());
-$('#part-dialog').addEventListener('click', (event) => { if (event.target === $('#part-dialog')) $('#part-dialog').close(); });
-
-document.addEventListener('click', async (event) => {
-	const edit = event.target.closest('[data-edit-part]');
-	if (edit) return openPartDialog(state.parts.find((part) => part.id === edit.dataset.editPart));
-	const remove = event.target.closest('[data-delete-part]');
-	if (!remove || !confirm('Hapus sparepart ini? Item yang memiliki riwayat transaksi tidak dapat dihapus.')) return;
-	try { await api(`/api/parts/${remove.dataset.deletePart}`, { method: 'DELETE' }); await refresh(); notify('Sparepart berhasil dihapus.'); }
-	catch (error) { notify(error.message); }
-});
-
-$('#part-form').addEventListener('submit', async (event) => {
-	event.preventDefault();
-	const form = event.currentTarget;
-	const message = $('#part-message');
-	message.textContent = '';
-	const body = Object.fromEntries(new FormData(form).entries());
-	const editId = form.dataset.editId;
-	const editing = Boolean(editId);
-	if (editing) delete body.stock;
-	try {
-		await api(editing ? `/api/parts/${editId}` : '/api/parts', { method: editing ? 'PATCH' : 'POST', body: JSON.stringify(body) });
-		delete form.dataset.editId;
-		form.reset();
-		$('#part-dialog').close();
-		notify(editing ? 'Perubahan sparepart tersimpan.' : 'Sparepart berhasil ditambahkan.');
-		await refresh();
-	} catch (error) { message.textContent = error.message; }
-});
-
-$('#transaction-form').addEventListener('submit', async (event) => {
-	event.preventDefault();
-	const message = $('#transaction-message');
-	message.textContent = '';
-	const type = $('#transaction-type').value;
-	if (!state.cart.length) return void (message.textContent = 'Tambahkan minimal satu sparepart ke transaksi.');
-	if (type === 'sale' && state.cart.some((item) => item.quantity > (state.parts.find((part) => part.id === item.sparepart_id)?.stock ?? -1))) return void (message.textContent = 'Jumlah di keranjang melebihi stok terbaru.');
-	try {
-		await api('/api/transactions', { method: 'POST', body: JSON.stringify({ type, note: $('#transaction-note').value, items: state.cart }) });
-		state.cart = [];
-		$('#transaction-note').value = '';
-		$('#transaction-quantity').value = '1';
-		renderCart();
-		notify(`${transactionLabel(type)} berhasil disimpan.`);
-		await refresh();
-	} catch (error) { message.textContent = error.message; }
-});
-
-$('#today-label').textContent = new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
-refresh().catch((error) => { notify(`Gagal memuat data: ${error.message}`); console.error(error); });
